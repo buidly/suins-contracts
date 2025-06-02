@@ -110,6 +110,8 @@ module suins::auction {
         let domain = suins_registration.domain();
         let domain_name = domain.to_string().into_bytes();
         let owner = tx_context::sender(ctx);
+
+        // Alex: add validations for start & end time. Start time >= now. End Time > Start Time
         auction_table.table.add(
             domain_name,
             Auction {
@@ -124,6 +126,7 @@ module suins::auction {
             }
         );
 
+        // Alex: add the ID of the Auction in the event
         event::emit(AuctionCreatedEvent {
             domain_name,
             owner,
@@ -150,6 +153,8 @@ module suins::auction {
 
         let bid_amount = coin.value();
         let highest_bid_value = auction.highest_bid_balance.value();
+
+        // Alex: bid_amount <= auction.min_bid
         if (bid_amount < auction.min_bid || bid_amount <= highest_bid_value) { abort EBidTooLow };
 
         if (highest_bid_value > 0) {
@@ -161,6 +166,7 @@ module suins::auction {
         auction.highest_bidder = bidder;
         auction.highest_bid_balance.join(coin.into_balance());
 
+        // Alex: add the ID of the Auction in the event
         event::emit(BidPlacedEvent {
             domain_name,
             bidder,
@@ -189,6 +195,8 @@ module suins::auction {
         } =  auction_table.table.remove(domain_name);
 
         let caller = tx_context::sender(ctx);
+
+        // Alex: why is this condition required? I think we can remove it and also implement in the BE a mechanism for automatically finalizing auctions
         if (owner != caller) { abort ENotOwner };
 
         let now = clock.timestamp_ms() / 1000;
@@ -197,10 +205,10 @@ module suins::auction {
         let highest_bid_value = balance::value(&highest_bid_balance);
         if (highest_bid_value == 0) { abort ENoBids };
 
-
         transfer::public_transfer(suins_registration, highest_bidder);
         transfer::public_transfer(coin::from_balance(highest_bid_balance, ctx), owner);
 
+        // Alex: let's add auctionId for this one
         event::emit(AuctionFinalizedEvent {
             domain_name,
             winner: highest_bidder,
@@ -236,6 +244,7 @@ module suins::auction {
         let highest_bid_value = balance::value(&highest_bid_balance);
         if (highest_bid_value > 0) { abort ENoBids };
 
+        // Alex: Why destroy? Bid should be sent back to the bidder.
         balance::destroy_zero(highest_bid_balance);
         transfer::public_transfer(suins_registration, caller);
 
@@ -267,6 +276,8 @@ module suins::auction {
         };
         let mut addresses = offer_addresses.addresses.borrow_mut(domain_name);
         addresses.push_back(tx_context::sender(ctx));
+
+        // Alex: add event OfferPlaced
     }
 
     /// Cancel an offer on a domain not in auction
@@ -284,6 +295,8 @@ module suins::auction {
         remove_offer_address(offer_addresses, domain_name, &caller);
         let coin = remove_offer_balance(offer_table, domain_name, caller, ctx);
         coin
+
+        // Alex: add event OfferCancelled
     }
 
     /// Accept an offer on a domain not in auction
@@ -309,6 +322,8 @@ module suins::auction {
         clear_offer_tables(offer_table, offer_addresses, domain_name, ctx);
 
         coin
+
+        // Alex: add event OfferAccepted
     }
 
     // Private functions 
