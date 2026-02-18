@@ -99,10 +99,15 @@ async fn main() -> Result<(), anyhow::Error> {
         ClientArgs {
             ingestion: IngestionClientArgs {
                 remote_store_url: Some(remote_store_url),
+                remote_store_s3: None,
+                remote_store_gcs: None,
+                remote_store_azure: None,
                 local_ingestion_path: None,
                 rpc_api_url: None,
                 rpc_username: None,
                 rpc_password: None,
+                checkpoint_timeout_ms: 120_000,
+                checkpoint_connection_timeout_ms: 120_000,
             },
             streaming: Default::default(),
         },
