@@ -1,0 +1,391 @@
+---
+title: Marketplace
+description: Build programmable transaction blocks using SuinsMarketplaceTransaction to list, buy, offer, and auction SuiNS domains.
+keywords: [ SuiNS, marketplace, listings, offers, auctions, SuinsMarketplaceTransaction, PTB ]
+---
+
+import { Callout } from '@docusaurus/theme-common';
+
+`SuinsMarketplaceTransaction` is the marketplace client you use similar to `SuinsTransaction`, and helps in building marketplace-related transactions.
+You need to instantiate it once in every programmable transaction block (PTB) that you are building.
+
+:::info
+
+Marketplace must be configured for your network. The `SuinsClient` needs to have a valid marketplace configuration, which is available on `mainnet` and `testnet`.
+
+:::
+
+## Listings
+
+### Create a listing
+
+```js
+const createListing = async (nftId: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    suinsMarketplaceTx.createListing({
+        // The coin type to price the listing in (e.g. '0x2::sui::SUI')
+        coinType: '0x2::sui::SUI',
+        // The fixed price in base units of the coin (1 SUI = 1_000_000_000 MIST)
+        price: 1_000_000_000n,
+        // Optional expiration timestamp in seconds
+        expiresAt: Math.floor(Date.now() / 1000) + 86400, // 24 hours from now
+        // The SuinsRegistration NFT to list
+        suinsRegistration: nftId,
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+### Buy a listing
+
+```js
+const buyListing = async (domainName: string, senderAddress: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Create a payment coin from gas using the exact listing price in MIST
+    const price = '1000000000'; // 1 SUI
+    const [coin] = transaction.splitCoins(transaction.gas, [transaction.pure.u64(price)]);
+
+    const nft = suinsMarketplaceTx.buyListing({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+        payment: coin,
+    });
+
+    // Transfer the purchased NFT to the buyer
+    transaction.transferObjects([nft], transaction.pure.address(senderAddress));
+
+    // ... sign and execute the transaction
+}
+```
+
+### Cancel a listing
+
+```js
+const cancelListing = async (domainName: string, senderAddress: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Only the original listing owner can cancel
+    const nft = suinsMarketplaceTx.cancelListing({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+    });
+
+    // The NFT is returned to the owner
+    transaction.transferObjects([nft], transaction.pure.address(senderAddress));
+
+    // ... sign and execute the transaction
+}
+```
+
+## Offers
+
+### Place an offer
+
+```js
+const placeOffer = async (domainName: string, offerAmount: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Create an offer coin by splitting from gas
+    const [coin] = transaction.splitCoins(transaction.gas, [transaction.pure.u64(offerAmount)]);
+
+    suinsMarketplaceTx.placeOffer({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+        coin: coin,
+        // Optional expiration timestamp in seconds
+        expiresAt: Math.floor(Date.now() / 1000) + 86400,
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+### Cancel an offer
+
+```js
+const cancelOffer = async (domainName: string, senderAddress: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Only the original offer maker can cancel their offer
+    const refundedCoin = suinsMarketplaceTx.cancelOffer({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+    });
+
+    // Transfer the refunded coin back
+    transaction.transferObjects([refundedCoin], transaction.pure.address(senderAddress));
+
+    // ... sign and execute the transaction
+}
+```
+
+### Accept an offer
+
+```js
+const acceptOffer = async (nftId: string, buyerAddress: string, senderAddress: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Transfers the NFT to the buyer and returns the payment (minus service fee)
+    const payment = suinsMarketplaceTx.acceptOffer({
+        coinType: '0x2::sui::SUI',
+        suinsRegistration: nftId,
+        buyerAddress: buyerAddress,
+    });
+
+    // Transfer the payment to the owner
+    transaction.transferObjects([payment], transaction.pure.address(senderAddress));
+
+    // ... sign and execute the transaction
+}
+```
+
+### Decline an offer
+
+```js
+const declineOffer = async (nftId: string, buyerAddress: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Refunds the payment coin to the offer maker
+    suinsMarketplaceTx.declineOffer({
+        coinType: '0x2::sui::SUI',
+        suinsRegistration: nftId,
+        buyerAddress: buyerAddress,
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+### Make a counter offer
+
+Only the domain owner can make a counter offer, and the counter value must be higher than the original offer.
+
+```js
+const makeCounterOffer = async (nftId: string, buyerAddress: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    suinsMarketplaceTx.makeCounterOffer({
+        coinType: '0x2::sui::SUI',
+        suinsRegistration: nftId,
+        buyerAddress: buyerAddress,
+        // The counter offer value must exceed the original offer
+        counterOfferValue: 2_000_000_000n,
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+### Accept a counter offer
+
+Only the original offer maker can accept the counter offer by providing the difference as a top-up coin.
+
+```js
+const acceptCounterOffer = async (domainName: string, additionalAmount: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Split the top-up amount (counter_offer_value - original_offer_value) from gas
+    const [coin] = transaction.splitCoins(transaction.gas, [transaction.pure.u64(additionalAmount)]);
+
+    suinsMarketplaceTx.acceptCounterOffer({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+        coin: coin,
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+## Auctions
+
+### Create an auction
+
+```js
+const createAuction = async (nftId: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    const now = Math.floor(Date.now() / 1000);
+
+    suinsMarketplaceTx.createAuction({
+        coinType: '0x2::sui::SUI',
+        // Auction start and end times (Unix timestamps in seconds)
+        startTime: now,
+        endTime: now + 86400, // 24 hours from now
+        // Minimum bid amount in base units of the coin
+        minBid: 500_000_000n,
+        // The SuinsRegistration NFT to auction
+        suinsRegistration: nftId,
+        // Optional encrypted reserve price (pre-encrypted using Seal)
+        // encryptedReservePrice: new Uint8Array([...]),
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+### Place a bid
+
+Bids must be at least 5% higher than the current highest bid. If the bid is placed within the last 5 minutes, the auction is automatically extended.
+
+```js
+const placeBid = async (domainName: string, bidAmount: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Split the bid amount from gas
+    const [coin] = transaction.splitCoins(transaction.gas, [transaction.pure.u64(bidAmount)]);
+
+    suinsMarketplaceTx.placeBid({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+        bid: coin,
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+### Finalize an auction
+
+Called after the auction end time has passed. If the highest bid meets the reserve (or there is no reserve), the domain is transferred to the winner and payment goes to the owner.
+
+```js
+const finalizeAuction = async (domainName: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // For auctions without an encrypted reserve price
+    suinsMarketplaceTx.finalizeAuction({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+:::info
+
+If the auction has an encrypted reserve price, you need to provide `derivedKeys` and `keyServers` for on-chain decryption. See [Seal approve](#seal-approve) below for how to obtain these.
+
+:::
+
+### Finalize an auction with reserve price
+
+When an auction has an encrypted reserve price, you must first call `sealApprove`, derive the keys, then pass them to `finalizeAuction`.
+
+```js
+const finalizeAuctionWithReserve = async (
+    domainName: string,
+    derivedKeys: number[][],
+    keyServers: string[]
+) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    suinsMarketplaceTx.finalizeAuction({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+        derivedKeys,
+        keyServers,
+    });
+
+    // ... sign and execute the transaction
+}
+```
+
+### Cancel an auction
+
+Only the original auction owner can cancel, and only before any bids are placed.
+
+```js
+const cancelAuction = async (domainName: string, senderAddress: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    const nft = suinsMarketplaceTx.cancelAuction({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+    });
+
+    // The NFT is returned to the owner
+    transaction.transferObjects([nft], transaction.pure.address(senderAddress));
+
+    // ... sign and execute the transaction
+}
+```
+
+### Seal approve
+
+This is needed when finalizing an auction that has an encrypted reserve price. Build a transaction containing this call, then pass the transaction bytes to `SealClient.getDerivedKeys()` to obtain the derived keys needed for `finalizeAuction`.
+
+```js
+const sealApproveAndFinalize = async (domainName: string, startTime: number) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // Build the seal_approve moveCall for Seal key derivation
+    suinsMarketplaceTx.sealApprove({
+        coinType: '0x2::sui::SUI',
+        domainName: 'example.sui',
+        // Must match the on-chain auction start time
+        startTime,
+    });
+
+    // Use the transaction bytes to obtain derived keys from the Seal client
+    // const { derivedKeys, keyServers } = await sealClient.getDerivedKeys(transaction);
+
+    // Then use those keys to finalize the auction with reserve price decryption
+    // suinsMarketplaceTx.finalizeAuction({
+    //     coinType: '0x2::sui::SUI',
+    //     domainName: 'example.sui',
+    //     derivedKeys,
+    //     keyServers,
+    // });
+
+    // ... sign and execute the transaction
+}
+```
+
+## Combined example
+
+The following code snippet creates a listing for a SuiNS domain and, separately, places an offer on another domain in a single PTB.
+
+```js
+const composedExample = async (myNftId: string, offerAmount: string) => {
+    const transaction = new Transaction();
+    const suinsMarketplaceTx = new SuinsMarketplaceTransaction(suinsClient, transaction);
+
+    // List your domain for sale at a fixed price
+    suinsMarketplaceTx.createListing({
+        coinType: '0x2::sui::SUI',
+        price: 5_000_000_000n, // 5 SUI
+        suinsRegistration: myNftId,
+    });
+
+    // In the same PTB, place an offer on a different domain
+    const [offerCoin] = transaction.splitCoins(transaction.gas, [transaction.pure.u64(offerAmount)]);
+
+    suinsMarketplaceTx.placeOffer({
+        coinType: '0x2::sui::SUI',
+        domainName: 'anothername.sui',
+        coin: offerCoin,
+    });
+
+    // ... sign and execute the transaction
+}
+```
